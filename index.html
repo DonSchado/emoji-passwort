@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Emoji-Passwort Generator</title>
+  <style>
+    :root {
+      --white: #fff;
+      --bg-color: #dcdee5;
+      --border-color: #ccc;
+      --btn-primary-color: #0077cc;
+      --shadow: rgba(0,0,0,0.25);
+      --text-color-silent: #777;
+      --option-hover-color: #eef;
+      --option-bg-color: #ddeeff;
+    }
+    body {
+      font-family: sans-serif;
+      background: var(--bg-color);
+      margin: 0;
+      padding: 2rem;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      background: var(--white);
+      padding: 2rem;
+      border-radius: 8px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 2px 10px var(--shadow);
+    }
+    .hidden {
+      display: none;
+    }
+    h2 {
+      margin-top: 0;
+    }
+    input {
+      width: 100%;
+      padding: 0.5rem;
+      margin: 1rem 0 0.5rem 0;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 1rem;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.6rem 1rem;
+      font-size: 1rem;
+      background: var(--btn-primary-color);
+      color: var(--white);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    small {
+      color: var(--text-color-silent);
+    }
+    .emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .emoji-option {
+      text-align: center;
+      cursor: pointer;
+      padding: 0.5rem;
+      border: 2px solid transparent;
+      border-radius: 6px;
+      transition: 0.2s;
+    }
+    .emoji-option:hover {
+      background: var(--option-hover-color);
+    }
+    .emoji-option.selected {
+      border-color: var(--btn-primary-color);
+      background: var(--option-bg-color);
+      pointer-events: none;
+    }
+    .password {
+      font-family: monospace;
+      font-size: 1.5rem;
+      font-weight: bold;
+      margin: 1rem 0;
+      padding: 2rem;
+      border: 4px dashed var(--btn-primary-color);
+      background: var(--option-bg-color);
+    }
+    .emoji-help {
+      font-size: 1.4rem;
+      margin-top: 1rem;
+    }
+    .center {
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <form id="step1">
+      <h2>Emoji-Passwort Generator 🤪</h2>
+      <input id="firstName" type="text" placeholder="dein Vorname" autofocus />
+      <small>(du hast mehrere Namen? Nimm nur den ersten)</small>
+      <input id="lastName" type="text" placeholder="dein Nachname" />
+
+      <button type="submit">Los geht's!</button>
+    </form>
+
+    <div id="step2" class="hidden">
+      <h2>Wähle deine 2 Emojis:</h2>
+      <div class="emoji-grid" id="emojiGrid"></div>
+    </div>
+
+    <div id="step3" class="hidden">
+      <h2>Dein Passwort:</h2>
+      <div class="password center" id="password"></div>
+
+      <div class="center">
+        <small>Merkhilfe:</small>
+        <span class="emoji-help" id="emojiHelp"><span>
+      </div>
+      <br>
+      <button onclick="restart()" style="margin-top:1rem;">Neustart</button>
+    </div>
+  </div>
+
+  <script type="module">
+    const SPECIAL_CHARACTERS = ["+", "#", "-", "!", "$", "%", "&", "=", "?", ":"];
+
+    let selectedEmojis = [];
+    let firstName = "";
+    let lastName = "";
+
+    document.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("step1").addEventListener("submit", handleFormSubmit);
+    });
+
+    const handleFormSubmit = (e) => {
+      e.preventDefault();
+      renderEmojiSelection();
+    };
+
+    const renderEmojiSelection = () => {
+      firstName = normalizeString(document.getElementById("firstName").value.trim());
+      lastName = normalizeString(document.getElementById("lastName").value.trim());
+
+      if (!firstName || !lastName) {
+        alert("Ich brauche deinen Vor- und Nachnamen");
+        return;
+      }
+
+      const keys = Object.keys(EMOJI_LIST);
+      const seed = hashCode(`${firstName}|${lastName}`);
+      const random = mulberry32(seed);
+      const shuffled = [...keys].sort(() => random() - 0.5);
+      const suggestions = shuffled.slice(0, 12);
+      const grid = document.getElementById("emojiGrid");
+      grid.innerHTML = "";
+
+      suggestions.forEach(name => {
+        const div = document.createElement("div");
+        div.className = "emoji-option";
+        div.innerHTML = `
+          <div style="font-size:2.5rem;">${EMOJI_LIST[name]}</div>
+          <div>${name}</div>
+        `;
+        div.addEventListener("click", () => selectEmoji(name, div));
+        grid.appendChild(div);
+      });
+
+      toggleSteps("step1", "step2");
+    };
+
+    // try to get rid of most ambigous chars and trailing whitespace
+    const normalizeString = (str) => {
+      return str
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, "");
+    };
+
+    const selectEmoji = (name, element) => {
+      if (selectedEmojis.includes(name)) return;
+
+      selectedEmojis.push(name);
+      element.classList.add("selected");
+
+      if (selectedEmojis.length === 2) {
+        showPassword();
+      }
+    };
+
+    const showPassword = () => {
+      const [emoji1, emoji2] = selectedEmojis;
+      const seed = hashCode(`${firstName}|${lastName}|${emoji1}|${emoji2}`);
+      const rand = mulberry32(seed);
+      const char1 = SPECIAL_CHARACTERS[Math.floor(rand() * SPECIAL_CHARACTERS.length)];
+      const char2 = SPECIAL_CHARACTERS[Math.floor(rand() * SPECIAL_CHARACTERS.length)];
+      const number = Math.floor(rand() * 900) + 100;
+      const password = `${emoji1}${char1}${emoji2}${char2}${number}`;
+
+      document.getElementById("password").textContent = password;
+      document.getElementById("emojiHelp").innerHTML = `${EMOJI_LIST[emoji1]}${EMOJI_LIST[emoji2]}`;
+
+      toggleSteps("step2", "step3");
+    };
+
+    const toggleSteps = (hideId, showId) => {
+      document.getElementById(hideId).classList.add("hidden");
+      document.getElementById(showId).classList.remove("hidden");
+    };
+
+    // yay math!
+    // returns deterministic positive integer
+    const hashCode = (str) => {
+      let hash = 0;
+      for (const char of str) {
+        hash = ((hash << 5) - hash) + char.charCodeAt(0);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    };
+
+    // yay more random math!
+    // smart people invented this to have a fast,
+    // seedable, psuedo-random number generator in javascript
+    const mulberry32 = (a) => {
+      return () => {
+        let t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    };
+
+    window.restart = () => {
+      selectedEmojis = [];
+      document.getElementById("firstName").value = "";
+      document.getElementById("lastName").value = "";
+      document.getElementById("emojiGrid").innerHTML = "";
+      document.getElementById("password").textContent = "";
+
+      toggleSteps("step3", "step1");
+    };
+
+    // once deployed, do not change,
+    // or passwords are not recoverable:
+    const EMOJI_LIST = {
+      "Apfel": "🍎",
+      "Banane": "🍌",
+      "Birne": "🍐",
+      "Orange": "🍊",
+      "Kirsche": "🍒",
+      "Melone": "🍉",
+      "Traube": "🍇",
+      "Erdbeere": "🍓",
+      "Zitrone": "🍋",
+      "Ananas": "🍍",
+      "Pfirsich": "🍑",
+      "Avocado": "🥑",
+      "Paprika": "🫑",
+      "Käse": "🧀",
+      "Hund": "🐶",
+      "Katze": "🐱",
+      "Maus": "🐭",
+      "Hase": "🐰",
+      "Fuchs": "🦊",
+      "Bär": "🐻",
+      "Koala": "🐨",
+      "Tiger": "🐯",
+      "Löwe": "🦁",
+      "Panda": "🐼",
+      "Kuh": "🐮",
+      "Schwein": "🐷",
+      "Frosch": "🐸",
+      "Eule": "🦉",
+      "Vogel": "🐦",
+      "Krokodil": "🐊",
+      "Elefant": "🐘",
+      "Giraffe": "🦒",
+      "Zebra": "🦓",
+      "Nilpferd": "🦛",
+      "Fisch": "🐟",
+      "Krabbe": "🦀",
+      "Tintenfisch": "🦑",
+      "Schnecke": "🐌",
+      "Delfin": "🐬",
+      "Hai": "🦈",
+      "Qualle": "🪼",
+      "Pinguin": "🐧",
+      "Huhn": "🐔",
+      "Küken": "🐥",
+      "Auto": "🚗",
+      "Bus": "🚌",
+      "Zug": "🚆",
+      "Flugzeug": "✈️",
+      "Rakete": "🚀",
+      "Schiff": "🚢",
+      "Fahrrad": "🚲",
+      "Motorrad": "🏍️",
+      "Traktor": "🚜",
+      "Feuerwehr": "🚒",
+      "Ballon": "🎈",
+      "Teddybär": "🧸",
+      "Roboter": "🤖",
+      "Joystick": "🕹️",
+      "Buch": "📚",
+      "Pinsel": "🖌️",
+      "Bleistift": "✏️",
+      "Kreide": "🖍️",
+      "Schere": "✂️",
+      "Uhr": "⏰",
+      "Kuchen": "🍰",
+      "Donut": "🍩",
+      "Eis": "🍦",
+      "Bonbon": "🍬",
+      "Lolli": "🍭",
+      "Pizza": "🍕",
+      "Burger": "🍔",
+      "Pommes": "🍟",
+      "Blume": "🌸",
+      "Baum": "🌳",
+      "Pilz": "🍄",
+      "Blatt": "🍃",
+      "Kaktus": "🌵",
+      "Sonne": "🌞",
+      "Mond": "🌙",
+      "Wolke": "☁️",
+      "Stern": "⭐",
+      "Regenbogen": "🌈",
+      "Herz": "❤️",
+      "Schloss": "🔒",
+      "Schlüssel": "🔑",
+      "Lupe": "🔍",
+      "Fernseher": "📺",
+      "Handy": "📱",
+      "Brille": "👓",
+      "Krone": "👑",
+      "Mikrofon": "🎤",
+      "Gitarre": "🎸",
+      "Trommel": "🥁",
+      "Noten": "🎵",
+      "Geschenk": "🎁",
+      "Torte": "🎂",
+      "Sternschnuppe": "🌠",
+      "Schneeflocke": "❄️",
+      "Feuer": "🔥",
+      "Wasser": "💧",
+      "Smiley": "🙂",
+      "Kuss": "😘",
+      "Cool": "😎",
+      "Cowboy": "🤠",
+      "Geist": "👻",
+      "Alien": "👽",
+      "Kussmund": "💋",
+      "Zahn": "🦷",
+      "Zunge": "👅",
+      "Ring": "💍",
+      "Zauberhut": "🎩",
+      "Hut": "👒",
+      "Schuh": "👠",
+      "Schal": "🧣",
+      "Handtasche": "👜",
+      "Rucksack": "🎒",
+      "Gans": "🪿",
+      "Ente": "🦆",
+      "Adler": "🦅",
+      "Fledermaus": "🦇",
+      "Einhorn": "🦄",
+      "Pferd": "🐴",
+      "Biene": "🐝",
+      "Wurm": "🪱",
+      "Marienkäfer": "🐞",
+      "Ameise": "🐜",
+      "Fliege": "🪰",
+      "Spinne": "🕷️",
+      "Skorpion": "🦂",
+      "Schildkröte": "🐢",
+      "Schlange": "🐍",
+      "Dino": "🦖",
+      "Krake": "🐙",
+      "Fisch": "🐠",
+      "Wal": "🐳",
+      "Kamel": "🐪",
+      "Känguru": "🦘",
+      "Feder": "🪶",
+      "Papagei": "🦜",
+      "Flamingo": "🦩",
+      "Waschbär": "🦝",
+      "Otter": "🦦",
+      "Igel": "🦔",
+      "Drache": "🐉",
+      "Palme": "🌴",
+      "Muschel": "🐚",
+      "Rose": "🌹",
+      "Sonnenblume": "🌻",
+      "Erde": "🌍",
+      "Saturn": "🪐",
+      "Tornado": "🌪️",
+      "Kokosnuss": "🥥",
+      "Kiwi": "🥝",
+      "Chili": "🌶️",
+      "Karotte": "🥕",
+      "Brezel": "🥨",
+      "Hotdog": "🌭",
+      "Nudeln": "🍝",
+      "Schokolade": "🍫",
+      "Popcorn": "🍿",
+      "Keks": "🍪",
+      "Kaffee": "☕️",
+      "Fußball": "⚽️",
+      "Basketball": "🏀",
+      "Football": "🏈",
+      "Tennis": "🎾",
+      "Frisbee": "🥏",
+      "Skateboard": "🛹",
+      "Schlitten": "🛷",
+      "Puzzle": "🧩",
+      "Klavier": "🎹",
+      "Trompete": "🎺",
+      "Würfel": "🎲",
+      "Polizei": "🚔",
+      "Satellit": "🛰️",
+      "Ufo": "🛸",
+      "Anker": "⚓️",
+      "Ampel": "🚦",
+      "Achterbahn": "🎢",
+      "Berg": "🏔️",
+      "Zelt": "⛺️",
+      "Haus": "🏠",
+      "Burg": "🏰",
+      "Kran": "🏗️",
+      "Baustelle": "🚧",
+      "Kamera": "📷",
+      "Batterie": "🔋",
+      "Kerze": "🕯️",
+      "Feuerlöscher": "🧯",
+      "Leiter": "🪜",
+      "Schraubendreher": "🪛",
+      "Hammer": "🔨",
+      "Schaufel": "🪏",
+      "Säge": "🪚",
+      "Magnet": "🧲",
+      "Pistole": "🔫",
+      "Bombe": "💣",
+      "Axt": "🪓",
+      "Stuhl": "🪑",
+      "Bett": "🛏️",
+      "Zauberstab": "🪄",
+      "Blitz": "⚡️",
+      "Schneemann": "☃️",
+      "Regenschirm": "☔️",
+      "Clown": "🤡",
+      "Fee": "🧚",
+      "Astronaut": "👩‍🚀"
+    };
+  </script>
+</body>
+</html>
